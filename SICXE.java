@@ -10,15 +10,15 @@ public class SICXE {
     static int LOCCTR = 0;
     static int programLength = 0;
     static int programStartAdd = 0;
+    static boolean inPass2 = false;
     record Op(int opcode, int format) {}
 
+    static LiteralTable literalTable = new LiteralTable();
     static String programName = "";
     static final List<String> MRecords = new ArrayList<>();
     static final Set<String> ABSSET = new HashSet<>();
     static final Map<String, Integer> SYMTAB = new HashMap<>();
-    static final Map<String,Integer> LITTAB = new HashMap<>();
     static final Map<String,String> SYMBLK = new HashMap<>();
-    static final List<String> PENDING_LIT = new ArrayList<>();
     static final ProgramBlocks programBlocks = new ProgramBlocks();
     static {
         SYMTAB.putAll(Map.of(
@@ -214,6 +214,7 @@ public class SICXE {
         var term = Expression.evaluate(operand);
         defineSymbol(label, term.value());
         if(term.relative() == 0) ABSSET.add(label);
+        else SYMBLK.put(label,term.block());
     }
 
     private static void switchBlock(String name) {
@@ -238,19 +239,22 @@ public class SICXE {
     }
 
     private static void collectLiteral(String operand) {
-        if(operand != null && operand.startsWith("=") && !SYMTAB.containsKey(operand)) {
-            PENDING_LIT.add(operand);
+        if(operand != null && operand.startsWith("=")) {
+            //PENDING_LIT.add(operand);
+            literalTable.add(operand);
         }
     }
 
     private static void flushLiterals() {
-        for(String literal : PENDING_LIT) {
-            if(SYMTAB.containsKey(literal)) continue;
-            SYMTAB.put(literal, LOCCTR);
+        var literalList = literalTable.flush();
+        for(String literal : literalList) {
+            //if(SYMTAB.containsKey(literal)) continue;
+            //SYMTAB.put(literal, LOCCTR);
+            literalTable.assignAddr(literal,LOCCTR,programBlocks.currentBlock());
             INTERMEDIATE.add(new IntermediateLine(LOCCTR, new Line("*","BYTE",literal.substring(1),false)));
             LOCCTR += constLen(literal.substring(1));
         }
-        PENDING_LIT.clear();
+        //PENDING_LIT.clear();
     }
 
     private static int constLen(String operand) {
@@ -264,6 +268,7 @@ public class SICXE {
     }
 
     private static void pass2(List<IntermediateLine> lines) {
+        inPass2 = true;
         programBlocks.use("");
         try (BufferedWriter writer = new BufferedWriter(new FileWriter("output"))) {
 
@@ -345,6 +350,7 @@ public class SICXE {
             this.ni = ni;
         }
     }
+
     private static String assembleInstruction(IntermediateLine line, Op op) {
         int format = op.format();
         String opcodeText = line.line().opcode();
@@ -388,8 +394,10 @@ public class SICXE {
                 address = term.value();
                 isConstant = term.relative() == 0;
             } else if (operand.startsWith("=")) {
-                addressingMode = AddressingMode.SIMPLE;
-                address = getLabelAdd(operand);
+                address = literalTable.getAddr(operand);
+                var block = literalTable.getBlock(operand);
+                address += programBlocks.disp(block);
+                //address = getLabelAdd(operand);
             } else {
                 var term = Expression.evaluate(operand);
                 address = term.value();

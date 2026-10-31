@@ -1,8 +1,12 @@
+/**
+ * This class assumes that you add or subtract relative terms from the same block only
+ * Because it's not mentioned in the book
+ */
 public class Expression {
     private final String text;
     private int pos = 0;
 
-    record Term(int value, int relative) {
+    record Term(int value, int relative,String block) {
     }
     private Expression(String text) {
         this.text = text;
@@ -27,7 +31,8 @@ public class Expression {
             Term right = parseTerm();
             int val = op == '+' ? left.value + right.value : left.value - right.value;
             int relCount = op == '+' ? left.relative() + right.relative() : left.relative() - right.relative();
-            left = new Term(val, relCount);
+            String block = left.block() != null ? left.block() : right.block();
+            left = new Term(val, relCount,block);
         }
         return left;
     }
@@ -43,8 +48,9 @@ public class Expression {
             if(right.relative() != 0 || left.relative() != 0) {
                 throw new IllegalStateException("relative terms can't be multiplied or divided");
             }
+            String block = left.block() != null ? left.block() : right.block();
             left = new Term(op == '*' ? left.value() * right.value() : left.value() / right.value()
-            ,0);
+            ,0,block);
         }
         return left;
     }
@@ -56,12 +62,12 @@ public class Expression {
         char c = peek();
         if(c == '*') {
             pos++;
-            return new Term(SICXE.LOCCTR,1);
+            return new Term(SICXE.LOCCTR,1,SICXE.programBlocks.currentBlock());
         }
         if(c == '-') {
             pos++;
             var t = parseFactor();
-            return new Term(-t.value, -t.relative);
+            return new Term(-t.value, -t.relative,t.block);
         }
         if(c == '(') {
             pos++;
@@ -75,7 +81,7 @@ public class Expression {
         if(Character.isDigit(c)) {
             int start = pos;
             while(pos < text.length() && Character.isDigit(peek())) pos++;
-            return new Term(Integer.parseInt(text.substring(start,pos)), 0);
+            return new Term(Integer.parseInt(text.substring(start,pos)), 0, null);
         }
 
         if(Character.isAlphabetic(c)) {
@@ -85,10 +91,13 @@ public class Expression {
             if(!SICXE.SYMTAB.containsKey(s)) {
                 throw new IllegalStateException("Undefiend Label " + s);
             }
-            int disp = SICXE.programBlocks.disp(SICXE.SYMBLK.get(s));
-            int val = SICXE.SYMTAB.get(s) + disp;
             boolean abs = SICXE.ABSSET.contains(s);
-            return new Term(val, abs ? 0 : 1);
+            int disp = 0;
+            if(SICXE.inPass2 && !abs) disp = SICXE.programBlocks.disp(SICXE.SYMBLK.get(s));
+            int val = SICXE.SYMTAB.get(s) + disp;
+            String block = null;
+            if(!abs) block = SICXE.SYMBLK.get(s);
+            return new Term(val, abs ? 0 : 1,block);
         }
         throw new IllegalArgumentException("Unexpected '" + c + "' in expression " + text);
     }
